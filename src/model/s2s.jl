@@ -59,7 +59,7 @@ function s2s_encode(m::S2S, x; trn=false, o...)
     forw(m.encoder, x; trn=trn, seq=true, o...)
 end    
 
-S2S_REPORT = 100
+S2S_REPORT = 1000
 
 function s2s_decode(m::S2S, x, ygold, mask, loss; trn=false, ystack=nothing, losscnt=nothing, maxnorm=nothing, o...)
     ypred = forw(m.decoder, x; trn=trn, seq=true, o...)
@@ -72,7 +72,7 @@ function s2s_decode(m::S2S, x, ygold, mask, loss; trn=false, ystack=nothing, los
     global S2S_REPORT #DBG
     if losscnt[2] > S2S_REPORT
         println((exp(losscnt[1]/losscnt[2]), losscnt..., maxnorm...))
-        S2S_REPORT *= 2
+        # S2S_REPORT *= 2
         fill!(losscnt,0); fill!(maxnorm,0)
     end
 end
