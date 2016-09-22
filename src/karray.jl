@@ -461,7 +461,7 @@ copy(a::KnetArray)=unsafe_copy!(similar(a),1,a,1,length(a))
 # Efficient fill:
 for S in (32,64); T = Symbol("Float$S"); F = "fill_$S"
     @eval function knetfill!(a::KnetArray{$T},v::$T,off,len)
-        ccall(($F,$libknet8),Void,(Cint,$T,Ptr{$T}),len,v,pointer(a,off))
+        ccall(($F,$libknet8),Void,(Cint,Cint,Cint,$T,Ptr{$T}),128,128,len,v,pointer(a,off))
     end
 end
 

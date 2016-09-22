@@ -14,8 +14,8 @@ __global__ void _$F(int n, $T *x, $T *y) {
   }
 }
 extern "C" {
-  void $F(int n, $T *x, $T *y) {
-    _$F<<<$BLK,$THR>>>(n,x,y);
+  void $F(int BLK, int THR, int n, $T *x, $T *y) {
+    _$F<<<BLK,THR>>>(n,x,y);
   }    
 }
 """)
@@ -42,8 +42,8 @@ __global__ void _fill_$F(int n, $T x, $T *y) {
   }
 }
 extern "C" {
-  void fill_$F(int n, $T x, $T *y) {
-    _fill_$F<<<$BLK,$THR>>>(n,x,y);
+  void fill_$F(int BLK, int THR, int n, $T x, $T *y) {
+    _fill_$F<<<BLK,THR>>>(n,x,y);
   }    
 }
 """)
@@ -71,8 +71,8 @@ __global__ void _xfill_$F(int nrows, int ncols, $T x, $T *y, int incy) {
   }
 }
 extern "C" {
-  void xfill_$F(int nrows, int ncols, $T x, $T *y, int incy) {
-    _xfill_$F<<<$BLK,$THR>>>(nrows, ncols, x, y, incy);
+  void xfill_$F(int BLK, int THR, int nrows, int ncols, $T x, $T *y, int incy) {
+    _xfill_$F<<<BLK,THR>>>(nrows, ncols, x, y, incy);
   }    
 }
 """)
@@ -99,8 +99,8 @@ __global__ void _xcopy(int nrows, int ncols, const char *x, int incx, char *y, i
   }
 }
 extern "C" {
-  void xcopy(int nrows, int ncols, const void *x, int incx, void *y, int incy) {
-    _xcopy<<<$BLK,$THR>>>(nrows,ncols,(char*)x,incx,(char*)y,incy);
+  void xcopy(int BLK, int THR, int nrows, int ncols, const void *x, int incx, void *y, int incy) {
+    _xcopy<<<BLK,THR>>>(nrows,ncols,(char*)x,incx,(char*)y,incy);
   }    
 }
 """
