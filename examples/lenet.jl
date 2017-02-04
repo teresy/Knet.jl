@@ -47,8 +47,6 @@ function main(args=ARGS)
     println("opts=",[(k,v) for (k,v) in o]...)
     o[:seed] > 0 && srand(o[:seed])
     atype = eval(parse(o[:atype]))
-    # gpu() >= 0 || error("LeNet only works on GPU machines.")
-
     dtrn = minibatch4(xtrn, ytrn, o[:batchsize]; atype=atype)
     dtst = minibatch4(xtst, ytst, o[:batchsize]; atype=atype)
     w = weights(atype=atype)

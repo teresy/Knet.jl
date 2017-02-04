@@ -181,7 +181,7 @@ type FD; ptr
 end
 
 type CD; ptr
-    function CD(w::KnetArray,x::KnetArray; padding=padsize(w), stride=1, upscale=1, mode=0)
+    function CD(w::KnetArray,x::KnetArray; padding=0, stride=1, upscale=1, mode=0)
         d = Cptr[0]
         @cuda(cudnn,cudnnCreateConvolutionDescriptor,(Ptr{Cptr},),d)
         nd = ndims(x)-2
@@ -248,7 +248,7 @@ DT(::KnetArray{Float32})=UInt32(0)
 DT(::KnetArray{Float64})=UInt32(1)
 DT(::KnetArray{Float16})=UInt32(2)
 
-function cdims(w,x; padding=padsize(w), stride=1, o...)
+function cdims(w,x; padding=0, stride=1, o...)
     N = ndims(w)
     ntuple(N) do i
         if i < N-1
@@ -305,7 +305,7 @@ end
 
 ### CPU implementations: originally by Onur Kuru, 2016; adapted to Knet8 by Deniz Yuret, 2017
 
-function _conv2{T}(x::Array{T,2}, w::Array{T,2}; padding=(0,0), stride=(1,1), mode=0)
+function _conv2_fft{T}(x::Array{T,2}, w::Array{T,2}; padding=(0,0), stride=(1,1), mode=0)
     pad = Int[0,0]
     for i=1:2
         pad[i] = size(w,i)-1-padding[i]
@@ -316,8 +316,32 @@ function _conv2{T}(x::Array{T,2}, w::Array{T,2}; padding=(0,0), stride=(1,1), mo
     return y[1+pad[1]:stride[1]:end-pad[1], 1+pad[2]:stride[2]:end-pad[2]]
 end
 
+
+# Alternative to _conv2 but 5x slower?
+# Does not handle tuple padding
+# Does not handle strides != 1
+function _conv2_gemm{T}(x0::Array{T,2}, w0::Array{T,2}; padding=(0,0), stride=(1,1), mode=0)
+    x = x0
+    if padding != (0,0)
+        x = fill!(similar(x0,size(x0,1)+2*padding[1],size(x0,2)+2*padding[2]),0)
+        x[padding[1]+1:end-padding[1],padding[2]+1:end-padding[2]] = x0
+    end
+    w = vec(w0)
+    if mode==0; w = reverse(w); end
+    rwindow, cwindow = size(w0)
+    row_extend = size(x,1)-rwindow+1
+    col_extend = size(x,2)-cwindow+1
+    widx = [(j-1)*size(x,1)+i for i in 1:row_extend, j in 1:col_extend]
+    oidx = [(j-1)*size(x,1)+i for i in 1:rwindow, j in 1:cwindow]
+    destidx = [i+(j-1) for i in vec(widx), j in vec(oidx)]
+    y = x[destidx] * w
+    return reshape(y,row_extend,col_extend)
+end
+
+_conv2{T}(x::Array{T,2}, w::Array{T,2}; o...)=_conv2_gemm(x,w;o...)
+
 function conv4{T}(w::Array{T,4},x::Array{T,4}; alpha=1, beta=0,
-                  padding=padsize(w), stride=(1,1), upscale=1, mode=0, # 0=conv, 1=xcorr
+                  padding=(0,0), stride=(1,1), upscale=1, mode=0, # 0=conv, 1=xcorr
                   o...) # handle=cudnnhandle, algo=0, workSpace=C_NULL, workSpaceSizeInBytes=0
     if beta != 0; error("cpu conv4 only supports beta=0"); end
     if upscale != 1; error("cpu conv4 only supports upscale=1"); end
@@ -340,7 +364,7 @@ end
 # dw = xcorr(x,dy) if y=xcorr(w,x)
 # TODO: stride != 1 not working
 function conv4w{T}(w::Array{T,4}, x::Array{T,4}, dy::Array{T,4}; alpha=1,
-                  padding=padsize(w), stride=(1,1), mode=0, # 0=conv, 1=xcorr
+                  padding=(0,0), stride=(1,1), mode=0, # 0=conv, 1=xcorr
                   o...) # handle=cudnnhandle, algo=0, workSpace=C_NULL, workSpaceSizeInBytes=0, upscale=1, beta=0
     Wx,Hx,C,Nx = size(x)
     Wy,Hy,K,Ny = size(dy)
@@ -356,7 +380,7 @@ end
 
 # dx = xcorr(dy, w, 'full')
 function conv4x{T}(w::Array{T,4}, x::Array{T,4}, dy::Array{T,4}; alpha=1,
-                   padding=padsize(w), stride=(1,1), mode=0, # 0=conv, 1=xcorr
+                   padding=(0,0), stride=(1,1), mode=0, # 0=conv, 1=xcorr
                    o...) # handle=cudnnhandle, algo=0, workSpace=C_NULL, workSpaceSizeInBytes=0, upscale=1, beta=0
     Wy,Hy,Ky,N = size(dy)
     Ww,Hw,C,Kw = size(w)
@@ -378,7 +402,7 @@ function pool{T}(x::Array{T,4}; alpha=1, beta=0,
     if mode != 0; error("cpu pool only supports mode=0"); end # TODO
     if padding != 0; error("cpu pool only supports padding=0"); end # TODO
     if stride != window; error("cpu pool only supports stride=window"); end # TODO
-    if maxpoolingNanOpt != 0; error("cpu pool only supports maxpoolingNanOpt=0"); end # TODO: check what this means
+    if maxpoolingNanOpt != 0; error("cpu pool only supports maxpoolingNanOpt=0"); end # 0 means NaN not propagated, test.
     if isa(window,Number); window=(window,window); end
     y = fill!(similar(x,pdims(x;window=window,padding=padding,stride=stride)),0)
     Wx,Hx,C,Nx = size(x);
@@ -463,29 +487,5 @@ end
 #         y[:,:,k,n] += _conv2_gemm(x[:,:,c,n], w[:,:,c,k]; pad=padding, stride=stride, xcorr=mode!=0)
 #     end
 #     return y
-# end
-
-# # Alternative to _conv2 but 5x slower.
-# # Does not handle tuple padding
-# # Does not handle strides != 1
-# function _conv2_gemm{T}(x0::Array{T,2}, w0::Array{T,2}; padding=0, stride=1, mode=0)
-#     if padding > 0
-#         x=zeros(eltype(x0),map(m->2*padding+m,size(x0))) 
-#         x[padding+1:end-padding,padding+1:end-padding] = x0
-#     else
-#         x=x0
-#     end
-#     if mode==1
-#         w = vec(w0)
-#     else
-#         w = reverse(vec(w0))
-#     end
-#     rwindow, cwindow = size(w0)
-#     row_extend = size(x,1)-rwindow+1
-#     col_extend = size(x,2)-cwindow+1
-#     widx = [(j-1)*size(x,1)+i for i in 1:row_extend, j in 1:col_extend]
-#     oidx = [(j-1)*size(x,1)+i for i in 1:rwindow, j in 1:cwindow]
-#     destidx = [i+(j-1) for i in vec(widx), j in vec(oidx)]
-#     return reshape(x[destidx]*w,row_extend,col_extend)
 # end
 
