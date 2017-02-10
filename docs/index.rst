@@ -1,3 +1,8 @@
+.. note:: You are not using the most up to date version of the
+   documentation. `denizyuret.github.io/Knet.jl
+   <http://denizyuret.github.io/Knet.jl/latest>`__ has the latest
+   version.
+
 .. Knet.jl documentation master file, created by
    sphinx-quickstart on Sat Oct 24 21:17:08 2015.
    You can adapt this file completely to your liking, but it should at least
