@@ -27,7 +27,7 @@ AutoGrad.@zerograd
 ## How it works
 
 ```@docs
-AutoGrad.grad_intro
+AutoGrad
 ```
 
 ### Forward and backward passes
