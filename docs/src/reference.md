@@ -1,17 +1,9 @@
-# Reference
+# Knet Reference
 
 **Contents**
 
 ```@contents
 Pages = ["reference.md"]
-```
-
-## AutoGrad
-
-```@docs
-AutoGrad.grad
-AutoGrad.gradloss
-AutoGrad.gradcheck
 ```
 
 ## KnetArray
@@ -60,14 +52,6 @@ Knet.Adam
 Knet.gaussian
 Knet.xavier
 Knet.bilinear
-```
-
-## AutoGrad (advanced)
-
-```@docs
-AutoGrad.@primitive
-AutoGrad.@zerograd
-AutoGrad.getval
 ```
 
 ## Function Index

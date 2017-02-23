@@ -31,6 +31,7 @@ makedocs(
             "tutorial.md",
             "examples.md",
             "reference.md",
+            "autograd.md",
         ],
         "Textbook" => Any[
             "backprop.md",

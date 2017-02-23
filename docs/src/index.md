@@ -9,6 +9,7 @@ Pages = [
  "tutorial.md",
  "examples.md",
  "reference.md",
+ "autograd.md",
 ]
 ```
 
