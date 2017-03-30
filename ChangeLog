@@ -1,3 +1,9 @@
+2017-03-29  Deniz Yuret  <dyuret@ku.edu.tr>
+
+	* nce:
+	- gclip not working
+	- nce unstable
+
 2017-03-28  Deniz Yuret  <dyuret@ku.edu.tr>
 
 	* examples/rnnlm.jl: Trying to replicate one of:
@@ -13,11 +19,16 @@
 	(:epoch,5,:perp,69.288506f0,184.24977f0,171.84555f0)  RNNLM.main("--seed 1 --epochs 30 --hidden 200 --embed 200 --batch 100 --optim Adagrad()")
 	(:epoch,30,:perp,113.68978f0,166.22272f0,154.77658f0) RNNLM.main("--seed 1 --epochs 30 --hidden 200 200 --embed 200 --batch 100 --dropout 0.5 --optim Adagrad()")
 	(:epoch,25,:perp,181.603f0,239.55917f0,225.10878f0)   RNNLM.main("--seed 1 --epochs 30 --hidden 200 200 --embed 200 --batch 100 --dropout 0.5 --optim Sgd(lr=1,gclip=5)")
+	sentence sorting rnnlm -> rnnlm1, new fixed rollout rnnlm -> rnnlm.jl:
+	(:epoch,30,:perp,53.4912,109.8963,103.5610)           RNNLM.main("--seed 1 --epochs 30 --dropout 0.5 --hidden 200 --embed 200 --batch 100 --optim Adagrad()")
+	(:epoch,15/15,:perp,403.2496,420.2505,396.1059)       RNNLM.main("--seed 1 --epochs 15 --hidden 200 200 --embed 200 --batch 20 --bptt 20 --optim Adagrad()")
+	(:epoch,20,:perp,64.86153f0,122.39018f0,117.85793f0)  (with 1/2 lr decay after epoch=4) RNNLM.main("--seed 1 --epochs 20 --hidden 200 200 --embed 200 --batch 20 --bptt 20 --optim Sgd(lr=1,gclip=5) --data ptb.train.txt ptb.valid.txt ptb.test.txt --loglevel 2")
+	(:epoch,40,:perp,72.03924f0,111.01945f0,107.8662f0)   (with 1.2 lr decay after epoch=6) RNNLM.main("--seed 1 --epochs 40 --hidden 650 650 --embed 650 --batch 20 --bptt 35 --dropout 0.5 --optim Sgd(lr=1,gclip=5) --data ptb.train.txt ptb.valid.txt ptb.test.txt --loglevel 2")
 
 	Paper claims perp < 100. Potential reasons we don't get this:
 	x Dropout not working. significant drop when turned off.
 	- Difft way to measure (exclude eos etc)
-	- Adam bad, sgd/gclip good. (adagrad works better). Paper uses SGD(lr=1,gclip=5) halving lr if devperp does not go down by 1.
+	- Adam bad, sgd/gclip good. (adagrad works better?). Paper uses SGD(lr=1,gclip=5) halving lr if devperp does not go down by 1.
 	- Difft lstm type?
 	- Initialization different. [-0.05,0.05]
 	- Batchsize different = 20.

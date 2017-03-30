@@ -1,9 +1,16 @@
-for p in ("ArgParse","JLD","Knet")
+# TODO: nce
+# TODO: importance sampling
+# TODO: char based input
+# TODO: bidirectional
+# TODO: better way to specify winit
+# TODO: better way to specify lr decay
+
+for p in ("ArgParse","Distributions","JLD","Knet")
     if Pkg.installed(p) == nothing; Pkg.add(p); end
 end
 
-module RNNLM
-using ArgParse,JLD,Knet
+# module RNNLM
+using ArgParse,Distributions,JLD,Knet
 using AutoGrad: getval
 logprint(x)=join(STDERR,[Dates.format(now(),"HH:MM:SS"),x,'\n'],' ')
 macro run(i,x) :(if loglevel>=$i; $(esc(x)); end) end
@@ -24,11 +31,11 @@ function lstm(weight,bias,hidden,cell,input)            # 2:991  1:992:1617 (id:
 end
 
 # sequence[t]::Vector{Int} minibatch of tokens
-function rnnlm(model, state, sequence; pdrop=0, range=1:(length(sequence)-1), keepstate=nothing, stats=nothing)
+function rnnlm(model, state, sequence; pdrop=0, range=1:(length(sequence)-1), keepstate=nothing, stats=nothing, nce=0)
     index = vcat(sequence[range]...)
     input = Wm(model)[:,index]                          # 2:15
+    input = dropout(input, pdrop)
     for n = 1:nlayers(model)
-        input = dropout(input, pdrop)
         input = Wx(model,n) * input                     # 2:26
         w,b,h,c = Wh(model,n),bh(model,n),hdd(state,n),cll(state,n)
         output = []
@@ -45,50 +52,99 @@ function rnnlm(model, state, sequence; pdrop=0, range=1:(length(sequence)-1), ke
             keepstate[2n] = getval(c)
         end
         input = hcat(output...)                         # 2:39
+        input = dropout(input,pdrop)
     end
-    input = dropout(input,pdrop)
-    input = Wy(model) * input .+ by(model)
-    input = logp(input,1)                               # 2:354  1:1067:673
     golds = vcat(sequence[range+1]...)
-    index = golds + size(input,1)*(0:(length(golds)-1))
-    logp1 = input[index]
-    total = sum(logp1)
-    count = length(logp1)
+    if nce > 0
+        vocab = size(Wy(model),1)
+        @assert length(golds) == size(input,2)
+        # qi = 1/vocab
+
+        Wy1 = Wy(model)[golds,:]
+        by1 = by(model)[golds,:]
+        score = Wy1 * input .+ by1
+        @assert size(score,1) == size(score,2) == length(golds)
+        diags = 1:(1+size(score,1)):length(score)
+        s0 = score[diags]
+        @assert length(s0) == length(golds)
+        # q0 = 1/vocab
+
+        k = length(golds)-1
+
+        kq0 = k * wfreq[golds]
+        z0 = log(exp(s0) .+ kq0)
+
+        # exclude the diags here?
+        s1 = sum(log(kq0))
+        z1 = vec(sum(log(exp(score) .+ kq0), 1))
+
+        # 0. small bptt+batch in rnnlm.jl works
+        # 1. modify rnnlm1.jl to sample noise for each token minibatch
+        # 1a. try uniform distro instead of unigram
+        # 2. experiment with rnnlm.jl to sample noise for each sequence minibatch
+        # 2a. compare with one sample per instance
+        # 3. experiment with using minibatch as its own noise samples
+
+        #=
+        k = nce
+        # rnd = rand(1:vocab, nce)
+        rnd = rand(wdist, nce)
+        Wy2 = Wy(model)[rnd,:]
+        by2 = by(model)[rnd,:]
+        score = Wy2 * input .+ by2
+        @assert size(score,1)==nce && size(score,2)==length(golds)
+        # kq = k*(1/vocab)
+        kq = k*wfreq[rnd]
+        s1 = sum(log(kq))
+        z1 = vec(sum(log(exp(score) .+ kq), 1))
+        =#
+        
+        logp2 = (s0 - z0 + s1 - z1) / (k+1)
+        
+    else
+        logp0 = Wy(model) * input .+ by(model)
+        logp1 = logp(logp0,1)
+        @assert length(golds) == size(logp1,2)
+        index = golds + size(logp1,1)*(0:(size(logp1,2)-1))
+        logp2 = logp1[index]
+    end
+    total = sum(logp2)
+    nword = length(golds)
     if stats != nothing
         stats[1]=total
-        stats[2]=count
+        stats[2]=nword
     end
     batch = length(sequence[1])
-    # return -total / count # per token loss: scale does not depend on sequence length or minibatch
-    return -total / batch # per sequence loss: does not depend on minibatch, larger loss for longer seq
+    # return -total / nword # per token loss: scale does not depend on sequence length or minibatch
+    return -total / batch   # per sequence loss: does not depend on minibatch, larger loss for longer seq
     # return -total 	    # total loss: longer sequences and larger minibatches have higher loss
 end
 
 rnnlmgrad = grad(rnnlm)
 
 # data[t][b] contains word[(b-1)*T+t]
-function bptt(model, data, optim; pdrop=0, slen=20)
+function bptt(model, data, optim; pdrop=0, slen=20, nce=0)
     T = length(data)
     B = length(data[1])
     state = initstate(model,B)
     @run 2 begin
         wnorm = zeros(length(model))
         gnorm = zeros(length(model))
-        count = 0
+        nword = 0
     end
     for i = 1:slen:(T-1)
         j = i+slen-1
         if j >= T; break; end
-        grads = rnnlmgrad(model, state, data; pdrop=pdrop, range=i:j, keepstate=state)
-        update!(model, grads, optim)
+        grads = rnnlmgrad(model, state, data; pdrop=pdrop, nce=nce, range=i:j, keepstate=state)
         @run 2 begin
             gnorm += map(vecnorm,grads)
             wnorm += map(vecnorm,model)
-            count += 1
+            nword += 1
         end
+        update!(model, grads, optim)
     end
-    @msg 2 string("wnorm=",wnorm./count)
-    @msg 2 string("gnorm=",gnorm./count)
+    @msg 2 string("wnorm=",wnorm./nword)
+    @msg 2 string("gnorm=",gnorm./nword)
 end
 
 function loss(model, data; slen=20)
@@ -182,13 +238,16 @@ function initvocab()
     Dict{String,Int32}("<s>"=>EOS)
 end
 
-function loaddata(file, vocab)
+function loaddata(file, vocab, wfreq)
     data = Int32[EOS]; nw = ns = 0
     for l in eachline(file); ns+=1
         for w in split(l); nw+=1
-            push!(data, get!(vocab, w, 1+length(vocab)))
+            i = get!(vocab, w, 1+length(vocab))
+            push!(data, i)
+            wfreq[i] += 1
         end
         push!(data,EOS)
+        wfreq[EOS] += 1
     end
     @msg 1 "$file: $ns sentences, $nw words, vocab=$(length(vocab)), corpus=$(length(data))"
     return data
@@ -228,6 +287,7 @@ function main(args=ARGS)
         ("--seed"; arg_type=Int; default=-1; help="Random number seed.")
         ("--atype"; default=(gpu()>=0 ? "KnetArray{Float32}" : "Array{Float32}"); help="array type: Array for cpu, KnetArray for gpu")
         ("--fast"; action=:store_true; help="skip loss printing for faster run")
+        ("--nce";  arg_type=Int; default=0; help="number of nce samples.")
         ("--loglevel"; arg_type=Int; default=1; help="display progress messages")
         # TODO: ("--generate"; arg_type=Int; default=0; help="If non-zero generate given number of tokens.")
     end
@@ -238,9 +298,14 @@ function main(args=ARGS)
     if isempty(o[:datafiles]); o[:datafiles] = mikolovptb(); end
     @msg 1 string(s.description,"opts=",[(k,v) for (k,v) in o]...)
     global vocab = initvocab()
-    global text = map(f->loaddata(f,vocab), o[:datafiles])
+    global wfreq = zeros(10000) # TODO
+    global text = map(f->loaddata(f,vocab,wfreq), o[:datafiles])
+    wfreq ./= sum(wfreq) # TODO
+    global wdist = Categorical(wfreq)
+    wfreq = KnetArray{Float32}(wfreq)
     global data = map(t->minibatch(t, o[:batchsize]), text)
     global model = initmodel(eval(parse(o[:atype])), o[:hidden], length(vocab), o[:embed])
+    @msg 1 (:usable_data,[length(d[1]) * o[:bptt] * div(length(d),o[:bptt]) for d in data]...)
     function report(ep)
         l = [ loss(model,d;slen=o[:bptt]) for d in data ]
         l1 = Float32[ exp(x[1]/x[2]) for x in l ]
@@ -254,7 +319,7 @@ function main(args=ARGS)
     global optim = initoptim(model,o[:optimization])
     Knet.knetgc(); gc() # TODO: fix this otherwise curand cannot initialize no memory left!
     for epoch=1:o[:epochs]
-        @log 1 bptt(model, data[1], optim; pdrop=o[:dropout], slen=o[:bptt])
+        bptt(model, data[1], optim; pdrop=o[:dropout], slen=o[:bptt], nce=o[:nce])
         if o[:fast]; continue; end
         @log 1 (losses = report(epoch))
         if o[:bestfile] != nothing && losses[devset] < devbest
@@ -285,4 +350,4 @@ else
     !isinteractive() && !isdefined(Core.Main,:load_only) && main(ARGS)
 end
 
-end  # module
+# end  # module
