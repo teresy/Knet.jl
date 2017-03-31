@@ -30,8 +30,42 @@ function lstm(weight,bias,hidden,cell,input)            # 2:991  1:992:1617 (id:
     return (hidden,cell)
 end
 
+# using Knet: KnetMatrix
+# Base.diag(a::KnetMatrix)=a[1:(1+size(a,1)):length(a)]
+
+function nceloss(model, input, golds, sampleSize, shareSize) # share n samples among k instances
+    @assert length(golds) == size(input,2)
+    Wy0 = Wy(model)[golds,:]
+    by0 = by(model)[golds,:]
+    s0 = Wy0 * input .+ by0
+    @assert size(s0,1) == size(s0,2) == length(golds)
+    s0 = s0[1:(1+size(s0,1)):length(s0)]
+    @assert length(s0) == length(golds)
+    z0 = log(exp(s0) + (sampleSize * wfreq[golds]))
+    @assert length(z0) == length(golds)
+    p1 = []
+
+    for i=1:shareSize:length(golds)
+        j=min(i+shareSize-1,length(golds))
+        n=j-i+1
+        # s0[i:j] are going to share the same noise samples
+        samples = rand(wdist,sampleSize)
+        Wy1 = Wy(model)[samples,:]
+        by1 = by(model)[samples,:]
+        s1 = Wy1 * input[:,i:j] .+ by1
+        @assert size(s1,1)==sampleSize && size(s1,2)==n
+        kq = sampleSize * wfreq[samples]
+        z1 = log(exp(s1) .+ kq)
+        push!(p1, vec(sum(log(kq)) - sum(z1,1)))
+    end
+    p1 = vcat(p1...)
+    @assert length(p1) == length(golds)
+    p1 = p1 + s0 - z0
+    return p1 / (1+sampleSize)
+end
+
 # sequence[t]::Vector{Int} minibatch of tokens
-function rnnlm(model, state, sequence; pdrop=0, range=1:(length(sequence)-1), keepstate=nothing, stats=nothing, nce=0)
+function rnnlm(model, state, sequence; pdrop=0, range=1:(length(sequence)-1), keepstate=nothing, stats=nothing, nce=0, share=0)
     index = vcat(sequence[range]...)
     input = Wm(model)[:,index]                          # 2:15
     input = dropout(input, pdrop)
@@ -56,51 +90,7 @@ function rnnlm(model, state, sequence; pdrop=0, range=1:(length(sequence)-1), ke
     end
     golds = vcat(sequence[range+1]...)
     if nce > 0
-        vocab = size(Wy(model),1)
-        @assert length(golds) == size(input,2)
-        # qi = 1/vocab
-
-        Wy1 = Wy(model)[golds,:]
-        by1 = by(model)[golds,:]
-        score = Wy1 * input .+ by1
-        @assert size(score,1) == size(score,2) == length(golds)
-        diags = 1:(1+size(score,1)):length(score)
-        s0 = score[diags]
-        @assert length(s0) == length(golds)
-        # q0 = 1/vocab
-
-        k = length(golds)-1
-
-        kq0 = k * wfreq[golds]
-        z0 = log(exp(s0) .+ kq0)
-
-        # exclude the diags here?
-        s1 = sum(log(kq0))
-        z1 = vec(sum(log(exp(score) .+ kq0), 1))
-
-        # 0. small bptt+batch in rnnlm.jl works
-        # 1. modify rnnlm1.jl to sample noise for each token minibatch
-        # 1a. try uniform distro instead of unigram
-        # 2. experiment with rnnlm.jl to sample noise for each sequence minibatch
-        # 2a. compare with one sample per instance
-        # 3. experiment with using minibatch as its own noise samples
-
-        #=
-        k = nce
-        # rnd = rand(1:vocab, nce)
-        rnd = rand(wdist, nce)
-        Wy2 = Wy(model)[rnd,:]
-        by2 = by(model)[rnd,:]
-        score = Wy2 * input .+ by2
-        @assert size(score,1)==nce && size(score,2)==length(golds)
-        # kq = k*(1/vocab)
-        kq = k*wfreq[rnd]
-        s1 = sum(log(kq))
-        z1 = vec(sum(log(exp(score) .+ kq), 1))
-        =#
-        
-        logp2 = (s0 - z0 + s1 - z1) / (k+1)
-        
+        logp2 = nceloss(model, input, golds, nce, share)
     else
         logp0 = Wy(model) * input .+ by(model)
         logp1 = logp(logp0,1)
@@ -123,7 +113,7 @@ end
 rnnlmgrad = grad(rnnlm)
 
 # data[t][b] contains word[(b-1)*T+t]
-function bptt(model, data, optim; pdrop=0, slen=20, nce=0)
+function bptt(model, data, optim; slen=20, o...) # pdrop=0, slen=20, nce=0)
     T = length(data)
     B = length(data[1])
     state = initstate(model,B)
@@ -135,7 +125,7 @@ function bptt(model, data, optim; pdrop=0, slen=20, nce=0)
     for i = 1:slen:(T-1)
         j = i+slen-1
         if j >= T; break; end
-        grads = rnnlmgrad(model, state, data; pdrop=pdrop, nce=nce, range=i:j, keepstate=state)
+        grads = rnnlmgrad(model, state, data; range=i:j, keepstate=state, o...)
         @run 2 begin
             gnorm += map(vecnorm,grads)
             wnorm += map(vecnorm,model)
@@ -173,6 +163,7 @@ cll(state,n)=state[2n]
 
 function initmodel(atype, hidden, vocab, embed)
     init(d...)=atype(xavier(Float32,d...))
+    # init(d...)=atype(rand(Float32,d...)*0.0002-0.0001)
     bias(d...)=atype(zeros(Float32,d...))
     N = length(hidden)
     model = Array(Any, 3N+3)
@@ -276,19 +267,20 @@ function main(args=ARGS)
         ("--loadfile"; help="Initialize model from file")
         ("--savefile"; help="Save final model to file")
         ("--bestfile"; help="Save best model to file")
-        ("--epochs"; arg_type=Int; default=1; help="Number of epochs for training.")
+        ("--epochs"; arg_type=Int; default=5; help="Number of epochs for training.")
         ("--hidden"; nargs='+'; arg_type=Int; default=[256]; help="Sizes of one or more LSTM layers.")
         ("--embed"; arg_type=Int; default=128; help="Size of the embedding vector.")
         ("--batchsize"; arg_type=Int; default=64; help="Number of sequences to train on in parallel.")
+        ("--share"; arg_type=Int; default=64; help="NCE sharing.")
         ("--bptt"; arg_type=Int; default=20; help="Number of steps to unroll for bptt.")
-        ("--optimization"; default="Adam()"; help="Optimization algorithm and parameters.")
+        ("--optimization"; default="Adagrad()"; help="Optimization algorithm and parameters.")
         ("--dropout"; arg_type=Float64; default=0.0; help="Dropout probability.")
         ("--gcheck"; arg_type=Int; default=0; help="Check N random gradients.")
         ("--seed"; arg_type=Int; default=-1; help="Random number seed.")
         ("--atype"; default=(gpu()>=0 ? "KnetArray{Float32}" : "Array{Float32}"); help="array type: Array for cpu, KnetArray for gpu")
         ("--fast"; action=:store_true; help="skip loss printing for faster run")
         ("--nce";  arg_type=Int; default=0; help="number of nce samples.")
-        ("--loglevel"; arg_type=Int; default=1; help="display progress messages")
+        ("--loglevel"; arg_type=Int; default=2; help="display progress messages")
         # TODO: ("--generate"; arg_type=Int; default=0; help="If non-zero generate given number of tokens.")
     end
     isa(args, AbstractString) && (args=split(args))
@@ -319,7 +311,7 @@ function main(args=ARGS)
     global optim = initoptim(model,o[:optimization])
     Knet.knetgc(); gc() # TODO: fix this otherwise curand cannot initialize no memory left!
     for epoch=1:o[:epochs]
-        bptt(model, data[1], optim; pdrop=o[:dropout], slen=o[:bptt], nce=o[:nce])
+        bptt(model, data[1], optim; pdrop=o[:dropout], slen=o[:bptt], nce=o[:nce], share=o[:share])
         if o[:fast]; continue; end
         @log 1 (losses = report(epoch))
         if o[:bestfile] != nothing && losses[devset] < devbest
@@ -351,3 +343,50 @@ else
 end
 
 # end  # module
+
+#=
+        vocab = size(Wy(model),1)
+        @assert length(golds) == size(input,2)
+        # qi = 1/vocab
+
+        Wy1 = Wy(model)[golds,:]
+        by1 = by(model)[golds,:]
+        score = Wy1 * input .+ by1
+        @assert size(score,1) == size(score,2) == length(golds)
+        diags = 1:(1+size(score,1)):length(score)
+        s0 = score[diags]
+        @assert length(s0) == length(golds)
+        # q0 = 1/vocab
+
+        k = length(golds)-1
+
+        kq0 = k * wfreq[golds]
+        z0 = log(exp(s0) .+ kq0)
+
+        # exclude the diags here?
+        s1 = sum(log(kq0))
+        z1 = vec(sum(log(exp(score) .+ kq0), 1))
+
+        # 0. small bptt+batch in rnnlm.jl works
+        # 1. modify rnnlm1.jl to sample noise for each token minibatch
+        # 1a. try uniform distro instead of unigram
+        # 2. experiment with rnnlm.jl to sample noise for each sequence minibatch
+        # 2a. compare with one sample per instance
+        # 3. experiment with using minibatch as its own noise samples
+
+        #=
+        k = nce
+        # rnd = rand(1:vocab, nce)
+        rnd = rand(wdist, nce)
+        Wy2 = Wy(model)[rnd,:]
+        by2 = by(model)[rnd,:]
+        score = Wy2 * input .+ by2
+        @assert size(score,1)==nce && size(score,2)==length(golds)
+        # kq = k*(1/vocab)
+        kq = k*wfreq[rnd]
+        s1 = sum(log(kq))
+        z1 = vec(sum(log(exp(score) .+ kq), 1))
+        =#
+        
+        logp2 = (s0 - z0 + s1 - z1) / (k+1)
+=#
