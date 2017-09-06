@@ -1,8 +1,8 @@
-using GPUArrays
-#CuArrays.allowslow(false)
-const KnetArray = GPUArray
-const KnetVector{T} = GPUArray{T,1}
-const KnetMatrix{T} = GPUArray{T,2}
+using CuArrays
+CuArrays.allowslow(false)
+const KnetArray = CuArray
+const KnetVector{T} = CuArray{T,1}
+const KnetMatrix{T} = CuArray{T,2}
 export KnetArray, KnetVector, KnetMatrix
 
 function logsumexp(x,d...)
