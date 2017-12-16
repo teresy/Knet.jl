@@ -1,3 +1,4 @@
+using CUDAapi
 NVCC = CXX = ""
 CFLAGS = is_windows() ? ["/Ox","/LD"] : ["-O3","-Wall","-fPIC"]
 NVCCFLAGS = ["-O3","--use_fast_math","-Wno-deprecated-gpu-targets"]
@@ -85,32 +86,19 @@ function build_nvcc()
     end
 end
 
-# edit copy of CUDAapi here for now
-# include("cudaapi2.jl") # use this until CUDAapi is fixed
-
 # Try to find NVCC
 
-if Pkg.installed("CUDAapi") != nothing
-    eval(Expr(:using,:CUDAapi))
-    try
-        tk = CUDAapi.find_toolkit()
-        tc = CUDAapi.find_toolchain(tk)
-        NVCC = tc.cuda_compiler
-        CXX = tc.host_compiler
-        push!(NVCCFLAGS, "--compiler-bindir", CXX)
-    end
+try
+    tk = CUDAapi.find_cuda_toolkit()
+    tc = CUDAapi.find_toolchain(tk)
+    NVCC = tc.cuda_compiler
+    CXX = tc.host_compiler
+    push!(NVCCFLAGS, "--compiler-bindir", CXX)
 end
 
-# CUDAapi checks path, but if no CUDAapi this acts as backup (no need for now)
+# If CUDAdrv installed get some compiler optimization flags
 
-# if NVCC == ""
-#     try success(`nvcc --version`)
-#         NVCC = "nvcc"
-#     end
-# end
-
-if NVCC != "" && Pkg.installed("CUDAdrv") != nothing && Pkg.installed("CUDAapi") != nothing
-    eval(Expr(:using,:CUDAapi))
+if NVCC != "" && Pkg.installed("CUDAdrv") != nothing
     eval(Expr(:using,:CUDAdrv))
     try
         dev = CuDevice(0)
@@ -126,7 +114,7 @@ end
 
 if CXX == ""
     try
-        CXX,CXXVER = CUDAapi.find_host_compiler()
+        CXX,CXXVER = find_host_compiler()
     end
 end
 

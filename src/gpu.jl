@@ -1,4 +1,4 @@
-using CUDAapi: find_library, libnvml
+using CUDAapi: find_cuda_library
 
 # moved this to gpu.jl to make it self contained for testing
 const PROFILING = false
@@ -8,7 +8,8 @@ macro gpu(_ex); if gpu()>=0; esc(_ex); end; end
 
 macro cuda(lib,fun,x...)        # give an error if library missing, or if error code!=0
     try 
-        path = find_library("$lib")
+        path = find_cuda_library("$lib")
+        if path == nothing; error(); end
         fx = Expr(:call, :ccall, ("$fun",path), :UInt32, x...)
         msg = "$lib.$fun error "
         err = gensym()
@@ -21,7 +22,8 @@ end
 
 macro cuda1(lib,fun,x...)       # return -1 if library missing, error code if run
     try
-        path = find_library("$lib")
+        path = find_cuda_library("$lib")
+        if path == nothing; error(); end
         fx = Expr(:call, :ccall, ("$fun",path), :UInt32, x...)
         err = gensym()
         esc(:($err=$fx; @gs; $err))
@@ -41,7 +43,7 @@ macro knet8(fun,x...)       # error if libknet8 missing, nothing if run
 end
 
 macro nvml(fun,x...)
-    esc(Expr(:macrocall,Symbol("@cuda"),libnvml,fun,x...))
+    esc(Expr(:macrocall,Symbol("@cuda"),"nvml",fun,x...))
 end
 
 const Cptr = Ptr{Void}
@@ -177,9 +179,16 @@ let GPU=-1, GPUCNT=-1, CUBLAS=nothing, CUDNN=nothing
             # error("No cublashandle for CPU")
             return nothing
         end
+        if CUBLAS == nothing
+            path = find_cuda_library("cublas")
+            if path == nothing; error("Cannot find the cublas library."); end
+            CUBLAS=Array{Any}(gpuCount()+1)
+        end
         i = dev+2
-        if CUBLAS == nothing; CUBLAS=Array{Any}(gpuCount()+1); end
         if !isassigned(CUBLAS,i); CUBLAS[i]=cublasCreate(); end
+        if !isdefined(:cublasVersion)
+            global cublasVersion = (p=Cint[0];@cuda(cublas,cublasGetVersion_v2,(Cptr,Ptr{Cint}),CUBLAS[i],p);Int(p[1]))
+        end
         return CUBLAS[i]
     end
 
@@ -188,8 +197,13 @@ let GPU=-1, GPUCNT=-1, CUBLAS=nothing, CUDNN=nothing
             # error("No cudnnhandle for CPU")
             return nothing
         end
+        if CUDNN == nothing
+            path = find_cuda_library("cudnn")
+            if path == nothing; error("Cannot find the cudnn library."); end
+            global cudnnVersion = Int(eval(:(ccall(("cudnnGetVersion",$path),Csize_t,()))))
+            CUDNN=Array{Any}(gpuCount()+1)
+        end
         i = dev+2
-        if CUDNN == nothing; CUDNN=Array{Any}(gpuCount()+1); end
         if !isassigned(CUDNN,i); CUDNN[i]=cudnnCreate(); end
         return CUDNN[i]
     end
@@ -234,17 +248,14 @@ function cublasCreate()
     @cuda(cublas,cublasCreate_v2, (Ptr{Cptr},), handleP)
     handle = handleP[1]
     atexit(()->@cuda(cublas,cublasDestroy_v2, (Cptr,), handle))
-    global cublasVersion = (p=Cint[0];@cuda(cublas,cublasGetVersion_v2,(Cptr,Ptr{Cint}),handle,p);Int(p[1]))
     return handle
 end
 
 function cudnnCreate()
-    path = find_library("cudnn")
     handleP = Cptr[0]
     @cuda(cudnn,cudnnCreate,(Ptr{Cptr},), handleP)
     handle = handleP[1]
     atexit(()->@cuda(cudnn,cudnnDestroy,(Cptr,), handle))
-    global cudnnVersion = Int(eval(:(ccall(("cudnnGetVersion",$path),Csize_t,()))))
     return handle
 end
 
