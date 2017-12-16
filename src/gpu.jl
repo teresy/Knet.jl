@@ -1,6 +1,4 @@
-# using CUDAapi: find_library, libnvml # using the following until CUDAapi fixed:
-include("../deps/cudaapi2.jl")
-find_library = CUDAapi2.find_library
+using CUDAapi: find_library, libnvml
 
 # moved this to gpu.jl to make it self contained for testing
 const PROFILING = false
@@ -43,7 +41,7 @@ macro knet8(fun,x...)       # error if libknet8 missing, nothing if run
 end
 
 macro nvml(fun,x...)
-    esc(Expr(:macrocall,Symbol("@cuda"),CUDAapi2.libnvml,fun,x...))
+    esc(Expr(:macrocall,Symbol("@cuda"),libnvml,fun,x...))
 end
 
 const Cptr = Ptr{Void}

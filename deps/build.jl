@@ -85,22 +85,20 @@ function build_nvcc()
     end
 end
 
+# edit copy of CUDAapi here for now
+# include("cudaapi2.jl") # use this until CUDAapi is fixed
 
 # Try to find NVCC
 
-if Pkg.installed("CUDAapi") != nothing # use this once CUDAapi is fixed
-#    eval(Expr(:using,:CUDAapi))
-
-# edit copy of CUDAapi here for now
-# include("cudaapi2.jl")
-
-try
-    tk = CUDAapi.find_toolkit()
-    tc = CUDAapi.find_toolchain(tk)
-    NVCC = tc.cuda_compiler
-    CXX = tc.host_compiler
-    push!(NVCCFLAGS, "--compiler-bindir", CXX)
-end
+if Pkg.installed("CUDAapi") != nothing
+    eval(Expr(:using,:CUDAapi))
+    try
+        tk = CUDAapi.find_toolkit()
+        tc = CUDAapi.find_toolchain(tk)
+        NVCC = tc.cuda_compiler
+        CXX = tc.host_compiler
+        push!(NVCCFLAGS, "--compiler-bindir", CXX)
+    end
 end
 
 # CUDAapi checks path, but if no CUDAapi this acts as backup (no need for now)
