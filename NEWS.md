@@ -4,7 +4,8 @@ Knet v0.8.6 Release Notes
 Compatibility
 -------------
 * Windows GPU support implemented.
-* MacOS GPU support improved: libnvidia-ml only used when available.
+* MacOS GPU support improved: nvml only used when available.
+* CUDA up to v"9.1" and cuDNN up to v"7.0.5" are tested.
 * Pre-0.6 Julia versions no longer supported.
 
 General
@@ -28,9 +29,10 @@ General
 Documentation and Examples
 --------------------------
 * New benchmarking notebooks under examples/DeepLearningFrameworks (with @kirnap, @ilkarman).
-* Knet/data now has download utilities: cifar.jl, fashion-mnist.jl, gutenberg.jl, housing.jl, imagenet.jl, imdb.jl, mikolovptb.jl, mnist.jl
+* Knet/data now has download utilities: cifar.jl, fashion-mnist.jl, gutenberg.jl, housing.jl, imagenet.jl, imdb.jl, mikolovptb.jl, mnist.jl, treebank.jl, wikiner.jl
 * All examples updated to use the new RNNs and replaced/supported with IJulia notebooks.
 * New variational-autoencoder example (@CarloLucibello).
+* DyNet benchmark examples added (@ilkerkesen).
 
 
 Knet v0.8.5 Release Notes
