@@ -89,7 +89,7 @@ end
 # Try to find NVCC
 
 try
-    tk = CUDAapi.find_cuda_toolkit()
+    tk = CUDAapi.find_toolkit()
     tc = CUDAapi.find_toolchain(tk)
     NVCC = tc.cuda_compiler
     CXX = tc.host_compiler
