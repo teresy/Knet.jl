@@ -13,7 +13,7 @@ supported as `w` and `x`.  If `w` has dimensions `(W1,W2,...,I,O)` and
 `x` has dimensions `(X1,X2,...,I,N)`, the result `y` will have
 dimensions `(Y1,Y2,...,O,N)` where
 
-    Yi=1+floor((Xi+2*padding[i]-Wi)/stride[i])
+    Yi=1+fld((Xi+2*padding[i]-Wi),stride[i])
 
 Here `I` is the number of input channels, `O` is the number of output
 channels, `N` is the number of instances, and `Wi,Xi,Yi` are spatial
@@ -103,7 +103,7 @@ Currently 4 or 5 dimensional KnetArrays with `Float32` or `Float64`
 entries are supported.  If `x` has dimensions `(X1,X2,...,I,N)`, the
 result `y` will have dimensions `(Y1,Y2,...,I,N)` where
 
-    Yi=1+floor((Xi+2*padding[i]-window[i])/stride[i])
+    Yi=1+fld((Xi+2*padding[i]-window[i]),stride[i])
 
 Here `I` is the number of input channels, `N` is the number of
 instances, and `Xi,Yi` are spatial dimensions.  `window`, `padding`
